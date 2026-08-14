@@ -1,6 +1,6 @@
 # Joshua-Configuration
 
-**Remote:** `git@github.com:SiliconCentric/Joshua-Configuration.git`
+**Remote:** `git@github.com:soccentric-joshua/Joshua-Configuration.git`
 **Parent project:** [Joshua](../Joshua.md) (target hardware: **TI Sitara AM62x**.)
 **Leaf type:** `<Project>-Configuration`
 **Status:** REAL — actively built out

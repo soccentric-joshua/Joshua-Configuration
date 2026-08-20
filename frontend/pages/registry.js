@@ -20,7 +20,7 @@ export const NAV = [
   { id: 'time', label: 'Clock', icon: 'clock', category: 'Time & Sync', key: 't', loader: () => import('./time.js') },
   { id: 'ntp', label: 'NTP', icon: 'clock', category: 'Time & Sync', key: '8', loader: () => import('./ntp.js') },
   { id: 'ptp', label: 'PTP', icon: 'activity', category: 'Time & Sync', key: '9', loader: () => import('./ptp.js') },
-  { id: 'gps', label: 'GPS / GNSS', icon: 'signal', category: 'Time & Sync', key: '6', loader: () => import('./gps.js') },
+  { id: 'gps', label: 'GPS / GNSS', icon: 'signal', category: 'Time & Sync', key: '3', loader: () => import('./gps.js') },
   { id: 'power', label: 'Power', icon: 'power', category: 'System', key: 'p', loader: () => import('./power.js') },
   { id: 'system-control', label: 'System Control', icon: 'settings', category: 'System', key: '0', loader: () => import('./system-control.js'), adminOnly: true },
 

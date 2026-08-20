@@ -198,7 +198,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_Joshua_manifest() {
+    fn parse_joshua_manifest() {
         let raw = include_str!("../../../board-manifests/joshua.json");
         let m: BoardManifest = serde_json::from_str(raw).unwrap();
         assert_eq!(m.platform, "joshua");

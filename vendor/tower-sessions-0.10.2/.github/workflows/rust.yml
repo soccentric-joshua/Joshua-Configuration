@@ -1,0 +1,117 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  MSRV: 1.67.1
+  REDIS_URL: redis://localhost:6379/1
+  MONGODB_URL: mongodb://localhost:27017
+  POSTGRES_URL: postgres://postgres:postgres@localhost:5432
+  MYSQL_URL: mysql://root@127.0.0.1:3306/public
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rustup toolchain install nightly --profile minimal --component rustfmt --component clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy
+        run: |
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: rustfmt
+        run: |
+          cargo fmt --all --check
+
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: "-D rustdoc::broken-intra-doc-links"
+        run: |
+          cargo doc --all-features --no-deps
+
+  test-docs:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-tarpaulin
+      - uses: Swatinem/rust-cache@v2
+      - name: Run doc tests
+        run: |
+          cargo test --workspace --all-features --doc
+
+  test-integration:
+    needs: check
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - store: memory_store
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rustup toolchain install ${{ env.MSRV }} --profile minimal
+          cargo install cargo-tarpaulin
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - name: Run integration tests
+        run: |
+          cargo nextest run ${{ matrix.store }}_test --test integration-tests
+      - name: Generate code coverage
+        run: |
+          output_dir="./coverage/${{ matrix.store }}_${{ matrix.features }}"
+          cargo tarpaulin -olcov --test integration-tests  --output-dir $output_dir
+          mkdir -p coverage-artifacts/integration
+          mv $output_dir coverage-artifacts/integration/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-artifacts-integration-${{ matrix.store }}
+          path: coverage-artifacts/integration
+
+  upload-coverage:
+    needs:
+      #- test-docs
+      - test-integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      #- name: Download Docs Coverage
+      #  uses: actions/download-artifact@v4
+      #  with:
+      #    name: coverage-artifacts-doc
+      #    path: coverage-artifacts-doc
+      - name: Download Integration Coverage
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage-artifacts-integration
+      - name: Combine Coverage Data
+        run: |
+          mkdir -p ./coverage
+          #mv coverage-artifacts-doc/* ./coverage/
+          mv coverage-artifacts-integration/* ./coverage/
+          ls -la ./coverage
+      - name: Upload all coverage data to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          directory: ./coverage
+          fail_ci_if_error: true

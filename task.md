@@ -12,7 +12,7 @@ confirmed working after the fix.
 ## Completion status
 | Task | Status |
 |---|---|
-| C1 — commit vendored `vendor/` | **[DONE]** generated and staged |
+| C1 — commit vendored `vendor/` | **[DONE]** committed + verified |
 | C2 — remove `.gitignore` `vendor/` rule | **[DONE]** |
 | C3 — align CI toolchain to 1.97.1 | **[DONE]** |
 | C4 — add `x86_64` to CI cross matrix | **[DONE]** |
@@ -26,6 +26,13 @@ confirmed working after the fix.
 > `arm-linux-gnueabihf-gcc` cross linkers (not installed in this sandbox).
 > CI now builds all three targets and warns at >6 MB; enforce/fail on the ARM
 > sizes once cross toolchain is available.
+
+### Fresh-offline verification (post-fix)
+`git clone` + `CARGO_NET_OFFLINE=true cargo build --workspace` and
+`cargo test --workspace --all-targets` both pass (89/89) — proving `vendor/` is
+committed, `.gitignore` no longer drops it, and the `**/target/` build-artifact
+rule no longer excludes the vendored `cc` crate's checked-in `src/target/*`
+generated sources (force-committed in a follow-up commit).
 
 ---
 

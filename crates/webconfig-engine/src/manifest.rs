@@ -25,6 +25,8 @@ pub enum ManifestError {
     Io(#[from] std::io::Error),
     #[error("manifest not found at {0}")]
     NotFound(String),
+    #[error("manifest firmware signing key invalid: {0}")]
+    FirmwareKey(String),
 }
 
 /// Kind of peripheral a manifest entry describes (spec §4.9 / §4.5 tiles).
@@ -63,6 +65,22 @@ pub struct Peripheral {
     /// change (spec §4.9).
     #[serde(default)]
     pub caps: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Peripheral {
+    /// Whether this peripheral advertises signed-firmware support.
+    pub fn signed_firmware(&self) -> bool {
+        self.caps
+            .get("signed_fw")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// The Ed25519 verification key this peripheral advertises for its
+    /// firmware, if any.
+    pub fn firmware_pubkey(&self) -> Option<&str> {
+        self.caps.get("firmware_pubkey_ed25519")?.as_str()
+    }
 }
 
 /// A dashboard tile declared as data (spec §4.5 platform tiles via manifest
@@ -191,6 +209,50 @@ impl BoardManifest {
     pub fn has(&self, id: &str) -> bool {
         self.peripherals.iter().any(|p| p.id == id)
     }
+
+    /// Validate that every peripheral advertising signed firmware carries a
+    /// real, well-formed Ed25519 verification key. Fails closed: a missing,
+    /// placeholder, or malformed key is rejected so a signed-firmware claim
+    /// with no usable trust anchor can never pass validation.
+    pub fn validate_firmware_keys(&self) -> Result<(), ManifestError> {
+        for p in self.peripherals.iter().filter(|p| p.signed_firmware()) {
+            let key = p.firmware_pubkey().ok_or_else(|| {
+                ManifestError::FirmwareKey(format!(
+                    "{} advertises signed firmware but has no firmware_pubkey_ed25519",
+                    p.id
+                ))
+            })?;
+            validate_ed25519_key(&p.id, key)?;
+        }
+        Ok(())
+    }
+}
+
+/// Validate an Ed25519 verification key (32-byte, base64-encoded). Rejects
+/// placeholder text and malformed encodings so a manifest can never advertise
+/// signed firmware without a usable trust anchor.
+fn validate_ed25519_key(id: &str, key: &str) -> Result<(), ManifestError> {
+    let lower = key.to_ascii_lowercase();
+    if lower.contains("placeholder") || lower.contains("change-me") || lower.contains("todo") {
+        return Err(ManifestError::FirmwareKey(format!(
+            "{} has a placeholder firmware_pubkey_ed25519",
+            id
+        )));
+    }
+    use base64::Engine as _;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(key)
+        .map_err(|_| {
+            ManifestError::FirmwareKey(format!("{} has a malformed (non-base64) key", id))
+        })?;
+    if decoded.len() != 32 {
+        return Err(ManifestError::FirmwareKey(format!(
+            "{} key must decode to 32 bytes, got {}",
+            id,
+            decoded.len()
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -245,5 +307,78 @@ mod tests {
         assert_eq!(manifest.platform, "generic-linux");
         assert!(manifest.config_defaults.is_some());
         assert!(manifest.config_defaults.unwrap().system.time.ntp_enabled);
+    }
+
+    #[test]
+    fn rejects_placeholder_firmware_key() {
+        use base64::Engine as _;
+        // A 32-byte, valid-base64 Ed25519 key for the "good" case.
+        let valid = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
+        let manifest: BoardManifest = serde_json::from_value(serde_json::json!({
+            "platform": "joshua",
+            "peripherals": [{
+                "id": "mcu-c55",
+                "kind": "mcu",
+                "caps": { "signed_fw": true, "firmware_pubkey_ed25519": "PLACEHOLDER" }
+            }]
+        }))
+        .unwrap();
+        let err = manifest.validate_firmware_keys().unwrap_err();
+        assert!(err.to_string().contains("placeholder"));
+        // Same manifest with a real key must validate.
+        let ok: BoardManifest = serde_json::from_value(serde_json::json!({
+            "platform": "joshua",
+            "peripherals": [{
+                "id": "mcu-c55",
+                "kind": "mcu",
+                "caps": { "signed_fw": true, "firmware_pubkey_ed25519": valid }
+            }]
+        }))
+        .unwrap();
+        assert!(ok.validate_firmware_keys().is_ok());
+    }
+
+    #[test]
+    fn rejects_malformed_firmware_key() {
+        use base64::Engine as _;
+        // 16 bytes encoded is a legal base64 string but not a valid Ed25519 key.
+        let short = base64::engine::general_purpose::STANDARD.encode([0u8; 16]);
+        let manifest: BoardManifest = serde_json::from_value(serde_json::json!({
+            "platform": "joshua",
+            "peripherals": [{
+                "id": "mcu-c55",
+                "kind": "mcu",
+                "caps": { "signed_fw": true, "firmware_pubkey_ed25519": short }
+            }]
+        }))
+        .unwrap();
+        let err = manifest.validate_firmware_keys().unwrap_err();
+        assert!(err.to_string().contains("32 bytes"));
+
+        // Non-base64 garbage is rejected.
+        let garbage: BoardManifest = serde_json::from_value(serde_json::json!({
+            "platform": "joshua",
+            "peripherals": [{
+                "id": "mcu-c55",
+                "kind": "mcu",
+                "caps": { "signed_fw": true, "firmware_pubkey_ed25519": "!!not-base64!!" }
+            }]
+        }))
+        .unwrap();
+        assert!(garbage.validate_firmware_keys().is_err());
+    }
+
+    #[test]
+    fn unsigned_peripheral_skips_key_validation() {
+        let manifest: BoardManifest = serde_json::from_value(serde_json::json!({
+            "platform": "joshua",
+            "peripherals": [{
+                "id": "cam0",
+                "kind": "camera",
+                "caps": { "signed_fw": false }
+            }]
+        }))
+        .unwrap();
+        assert!(manifest.validate_firmware_keys().is_ok());
     }
 }

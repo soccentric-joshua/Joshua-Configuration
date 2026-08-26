@@ -103,6 +103,30 @@ operator can override or disable a default by id.
   peripheral list and the full `config_defaults` shape; copy to
   `/etc/webconfig/board.yaml` to drive the engine on any Linux host.
 
+## Firmware signing key (signed firmware trust anchor)
+
+A peripheral advertising `"signed_fw": true` must carry a valid Ed25519
+verification key in `caps.firmware_pubkey_ed25519` (32 bytes, base64).
+`BoardManifest::validate_firmware_keys()` **fails closed**: a missing,
+placeholder, or malformed key is rejected so a signed-firmware claim with no
+usable trust anchor can never pass validation (see `manifest.rs` unit tests).
+
+### Key rotation procedure
+
+1. **Generate** a new keypair with the BSP firmware toolchain (e.g.
+   `openssl genpkey -algorithm ED25519`); keep the private key in the signing
+   keystore/HMS, never in the repo.
+2. **Sign firmware** with the new private key, and encode the new public key
+   as base64 (32 bytes).
+3. **Update** `board-manifests/joshua.json`'s
+   `caps.firmware_pubkey_ed25519` for the MCU, replacing the old value.
+4. **Validate**: run the Configuration test suite — `validate_firmware_keys`
+   must pass and the placeholder-rejection tests must still pass.
+5. **Stage** the key via a signed image (the provisioning/update path refuses
+   an unverifiable image when the trust anchor is absent).
+6. **Retire** the old key from the signing toolchain only after the new image
+   (signed with the new key) is confirmed on hardware.
+
 ## Consistency guarantees
 
 - The polkit allowlist (`meta-webconfig/recipes-core/webconfig/files/50-webconfigd.polkit.rules`)

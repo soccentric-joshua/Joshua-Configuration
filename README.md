@@ -69,4 +69,4 @@ Map your BSP `MACHINE` to its board manifest in
 
 ## License
 
-CLOSED (SoCcentric internal IV&V tooling).
+MIT. See [LICENSE](LICENSE).
